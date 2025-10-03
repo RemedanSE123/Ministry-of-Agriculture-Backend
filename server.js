@@ -4,7 +4,7 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-
+const koboRoutes = require('./routes/koboRoutes');
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -14,6 +14,9 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
+
+// Routes
+app.use('/api/kobo', koboRoutes);
 
 // Basic route
 app.get('/', (req, res) => {
