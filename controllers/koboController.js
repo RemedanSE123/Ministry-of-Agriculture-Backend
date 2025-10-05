@@ -1,12 +1,15 @@
+const KoboToken = require('../models/KoboToken');
+
 const fetchKoboToolboxData = async (req, res) => {
   try {
     const { token, tokenName } = req.body;
+    const user_id = req.user?.id || 'demo-user';
 
     if (!token) {
       return res.status(400).json({ error: 'API token is required' });
     }
 
-    // Fetch projects/assets
+    // Fetch projects/assets from Kobo
     const assetsResponse = await fetch('https://kf.kobotoolbox.org/api/v2/assets/', {
       headers: { 
         Authorization: `Token ${token}`,
@@ -94,11 +97,21 @@ const fetchKoboToolboxData = async (req, res) => {
       })
     );
 
+    // Save token to database
+    const tokenPreview = token.substring(0, 8) + '...';
+    const savedToken = await KoboToken.create({
+      user_id,
+      name: tokenName || 'Untitled Token',
+      token,
+      token_preview: tokenPreview
+    });
+
     // Return both projects and token info
     return res.json({
       success: true,
-      tokenName: tokenName || 'Untitled Token',
-      tokenPreview: token.substring(0, 8) + '...',
+      tokenId: savedToken.id,
+      tokenName: savedToken.name,
+      tokenPreview: savedToken.token_preview,
       projects: projectsWithData,
       totalProjects: projectsWithData.length,
       totalSubmissions: projectsWithData.reduce((sum, project) => sum + project.total_submissions, 0),
