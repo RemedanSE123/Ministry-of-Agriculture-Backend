@@ -86,6 +86,43 @@ const tokenController = {
         error: error.message
       });
     }
+  },
+
+  // Update token
+  async updateToken(req, res) {
+    try {
+      const { id } = req.params;
+      const { name } = req.body;
+
+      if (!name || name.trim() === '') {
+        return res.status(400).json({
+          success: false,
+          error: 'Token name is required'
+        });
+      }
+
+      const updatedToken = await KoboToken.update(id, { name: name.trim() });
+      
+      if (!updatedToken) {
+        return res.status(404).json({
+          success: false,
+          error: 'Token not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Token updated successfully',
+        token: updatedToken
+      });
+
+    } catch (error) {
+      console.error('Update token error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
   }
 };
 

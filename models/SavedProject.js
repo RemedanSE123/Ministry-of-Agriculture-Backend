@@ -1,7 +1,7 @@
 const db = require('../config/database');
 
 class SavedProject {
-  // Save project to database
+  // Create new project with auto-sync fields
   static async create(projectData) {
     const {
       token_id,
@@ -13,7 +13,10 @@ class SavedProject {
       total_submissions,
       available_columns,
       selected_columns,
-      data_url
+      data_url,
+      auto_sync_enabled = false,
+      auto_sync_interval = null,
+      next_sync_time = null
     } = projectData;
 
     console.log('Creating project in database:', {
@@ -22,15 +25,15 @@ class SavedProject {
       available_columns_length: available_columns?.length
     });
 
-    // Ensure columns are properly stringified
     const availableColumnsJson = JSON.stringify(available_columns || []);
     const selectedColumnsJson = JSON.stringify(selected_columns || available_columns || []);
 
     const query = `
       INSERT INTO saved_projects 
       (token_id, project_uid, project_name, owner_username, date_created, 
-       deployment_active, total_submissions, available_columns, selected_columns, data_url) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+       deployment_active, total_submissions, available_columns, selected_columns, 
+       data_url, auto_sync_enabled, auto_sync_interval, next_sync_time) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) 
       RETURNING *
     `;
     
@@ -44,7 +47,10 @@ class SavedProject {
       total_submissions,
       availableColumnsJson,
       selectedColumnsJson,
-      data_url
+      data_url,
+      auto_sync_enabled,
+      auto_sync_interval,
+      next_sync_time
     ];
     
     try {
@@ -165,6 +171,60 @@ class SavedProject {
     `;
     const result = await db.query(query);
     return result.rows;
+  }
+
+  // Update auto-sync configuration
+  static async updateAutoSync(project_uid, auto_sync_enabled, auto_sync_interval, next_sync_time) {
+    const query = `
+      UPDATE saved_projects 
+      SET auto_sync_enabled = $1, auto_sync_interval = $2, next_sync_time = $3 
+      WHERE project_uid = $4 
+      RETURNING *
+    `;
+    
+    const result = await db.query(query, [
+      auto_sync_enabled,
+      auto_sync_interval,
+      next_sync_time,
+      project_uid
+    ]);
+    
+    return result.rows[0];
+  }
+
+  // Get projects that need auto-sync
+  static async getProjectsForAutoSync() {
+    const query = `
+      SELECT sp.*, kt.token, kt.name as token_name 
+      FROM saved_projects sp 
+      JOIN kobo_tokens kt ON sp.token_id = kt.id 
+      WHERE sp.auto_sync_enabled = true 
+      AND sp.next_sync_time IS NOT NULL 
+      AND sp.next_sync_time <= NOW()
+      ORDER BY sp.next_sync_time ASC
+    `;
+    
+    const result = await db.query(query);
+    return result.rows;
+  }
+
+  // Update next sync time
+  static async updateNextSyncTime(project_uid, interval) {
+    const nextSync = new Date();
+    const [hours, minutes, seconds] = interval.split(':').map(Number);
+    nextSync.setHours(nextSync.getHours() + hours);
+    nextSync.setMinutes(nextSync.getMinutes() + minutes);
+    nextSync.setSeconds(nextSync.getSeconds() + seconds);
+
+    const query = `
+      UPDATE saved_projects 
+      SET next_sync_time = $1 
+      WHERE project_uid = $2 
+      RETURNING *
+    `;
+    
+    const result = await db.query(query, [nextSync.toISOString(), project_uid]);
+    return result.rows[0];
   }
 }
 

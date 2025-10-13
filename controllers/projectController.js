@@ -1,6 +1,7 @@
 const SavedProject = require('../models/SavedProject');
 const ProjectSubmission = require('../models/ProjectSubmission');
 const KoboToken = require('../models/KoboToken');
+const autoSyncService = require('../services/autoSyncService');
 
 const projectController = {
   // Save project to database
@@ -30,7 +31,6 @@ const projectController = {
         });
       }
 
-      // Ensure columns are properly formatted arrays
       const safeAvailableColumns = Array.isArray(available_columns) 
         ? available_columns 
         : (available_columns || []);
@@ -49,7 +49,10 @@ const projectController = {
         total_submissions: submissions?.length || 0,
         available_columns: safeAvailableColumns,
         selected_columns: safeSelectedColumns,
-        data_url: data_url
+        data_url: data_url,
+        auto_sync_enabled: false,
+        auto_sync_interval: null,
+        next_sync_time: null
       };
 
       const savedProject = await SavedProject.create(projectData);
@@ -88,14 +91,12 @@ const projectController = {
       const { tokenId } = req.params;
       const projects = await SavedProject.findByTokenId(tokenId);
 
-      // Get submission counts for each project
       const projectsWithData = await Promise.all(
         projects.map(async (project) => {
           try {
             const submissionCount = await ProjectSubmission.getCountByProjectUid(project.project_uid);
             const submissions = await ProjectSubmission.findByProjectUid(project.project_uid);
             
-            // Safely parse JSON columns with error handling
             let availableColumns = [];
             let selectedColumns = [];
             
@@ -104,7 +105,6 @@ const projectController = {
                 ? JSON.parse(project.available_columns) 
                 : (project.available_columns || []);
             } catch (e) {
-              console.error('Error parsing available_columns for project', project.project_uid, e);
               availableColumns = [];
             }
             
@@ -113,8 +113,7 @@ const projectController = {
                 ? JSON.parse(project.selected_columns) 
                 : (project.selected_columns || []);
             } catch (e) {
-              console.error('Error parsing selected_columns for project', project.project_uid, e);
-              selectedColumns = availableColumns; // Default to all available columns
+              selectedColumns = availableColumns;
             }
 
             return {
@@ -128,11 +127,13 @@ const projectController = {
                     ? JSON.parse(sub.submission_data) 
                     : sub.submission_data;
                 } catch (e) {
-                  console.error('Error parsing submission data:', e);
                   return {};
                 }
               }),
-              last_sync: project.last_sync
+              last_sync: project.last_sync,
+              auto_sync_enabled: project.auto_sync_enabled || false,
+              auto_sync_interval: project.auto_sync_interval,
+              next_sync_time: project.next_sync_time
             };
           } catch (error) {
             console.error('Error processing project:', project.project_uid, error);
@@ -173,7 +174,6 @@ const projectController = {
           try {
             const submissionCount = await ProjectSubmission.getCountByProjectUid(project.project_uid);
             
-            // Safely parse JSON columns with error handling
             let availableColumns = [];
             let selectedColumns = [];
             
@@ -182,7 +182,6 @@ const projectController = {
                 ? JSON.parse(project.available_columns) 
                 : (project.available_columns || []);
             } catch (e) {
-              console.error('Error parsing available_columns for project', project.project_uid, e);
               availableColumns = [];
             }
             
@@ -191,7 +190,6 @@ const projectController = {
                 ? JSON.parse(project.selected_columns) 
                 : (project.selected_columns || []);
             } catch (e) {
-              console.error('Error parsing selected_columns for project', project.project_uid, e);
               selectedColumns = availableColumns;
             }
 
@@ -209,7 +207,10 @@ const projectController = {
               data_url: project.data_url,
               last_sync: project.last_sync,
               token_name: project.token_name,
-              created_at: project.created_at
+              created_at: project.created_at,
+              auto_sync_enabled: project.auto_sync_enabled || false,
+              auto_sync_interval: project.auto_sync_interval,
+              next_sync_time: project.next_sync_time
             };
           } catch (error) {
             console.error('Error processing project for sidebar:', project.project_uid, error);
@@ -230,7 +231,6 @@ const projectController = {
         })
       );
 
-      // Filter out any projects that failed completely
       const validProjects = projectsWithData.filter(project => !project.error);
 
       res.json({
@@ -260,7 +260,6 @@ const projectController = {
         });
       }
 
-      // Also delete associated submissions
       await ProjectSubmission.deleteByProjectUid(deletedProject.project_uid);
 
       res.json({
@@ -288,14 +287,12 @@ const projectController = {
 
       const updatedProject = await SavedProject.updateColumns(projectUid, selected_columns);
 
-      // Parse the returned selected_columns for response
       let parsedColumns = [];
       try {
         parsedColumns = typeof updatedProject.selected_columns === 'string'
           ? JSON.parse(updatedProject.selected_columns)
           : updatedProject.selected_columns;
       } catch (e) {
-        console.error('Error parsing updated columns:', e);
         parsedColumns = selected_columns;
       }
 
@@ -320,30 +317,38 @@ const projectController = {
   // Sync project data
   async syncProject(req, res) {
     try {
-      const { projectId } = req.params;
-      const { token, submissions } = req.body;
-
-      // Update sync timestamp
-      await SavedProject.updateSyncTime(projectId);
-
-      // Update submissions if provided
-      if (submissions && submissions.length > 0) {
-        for (const submission of submissions) {
-          await ProjectSubmission.create({
-            project_uid: projectId,
-            submission_id: submission._id || submission.id || Date.now().toString(),
-            submission_data: submission
-          });
-        }
+      const { projectUid } = req.params;
+      
+      // Get project with token info
+      const project = await SavedProject.findWithToken(projectUid);
+      
+      if (!project) {
+        return res.status(404).json({
+          success: false,
+          error: 'Project not found'
+        });
       }
 
-      const submissionCount = await ProjectSubmission.getCountByProjectUid(projectId);
+      if (!project.token) {
+        return res.status(400).json({
+          success: false,
+          error: 'No token available for this project'
+        });
+      }
+
+      // Use the autoSyncService for manual sync
+      const result = await autoSyncService.manualSync(
+        projectUid, 
+        project.token, 
+        project.project_name
+      );
 
       res.json({
         success: true,
         message: 'Project synced successfully',
-        total_submissions: submissionCount,
-        last_sync: new Date().toISOString()
+        total_submissions: result.total_submissions,
+        last_sync: new Date().toISOString(),
+        submissions: result.submissions
       });
 
     } catch (error) {
@@ -368,7 +373,6 @@ const projectController = {
         });
       }
 
-      // Safely parse JSON columns
       let availableColumns = [];
       let selectedColumns = [];
       
@@ -377,7 +381,6 @@ const projectController = {
           ? JSON.parse(project.available_columns) 
           : (project.available_columns || []);
       } catch (e) {
-        console.error('Error parsing available_columns:', e);
         availableColumns = [];
       }
       
@@ -386,7 +389,6 @@ const projectController = {
           ? JSON.parse(project.selected_columns) 
           : (project.selected_columns || []);
       } catch (e) {
-        console.error('Error parsing selected_columns:', e);
         selectedColumns = availableColumns;
       }
 
@@ -404,7 +406,6 @@ const projectController = {
               ? JSON.parse(sub.submission_data) 
               : sub.submission_data;
           } catch (e) {
-            console.error('Error parsing submission data:', e);
             return {};
           }
         })
@@ -417,6 +418,92 @@ const projectController = {
 
     } catch (error) {
       console.error('Get project error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  },
+
+  // Configure auto-sync
+  async configureAutoSync(req, res) {
+    try {
+      const { projectUid } = req.params;
+      const { enabled, interval } = req.body;
+
+      if (enabled && (!interval || !interval.match(/^\d{2}:\d{2}:\d{2}$/))) {
+        return res.status(400).json({
+          success: false,
+          error: 'Valid interval required in HH:MM:SS format when enabling auto-sync'
+        });
+      }
+
+      const updates = {
+        auto_sync_enabled: enabled,
+        auto_sync_interval: interval
+      };
+
+      if (enabled && interval) {
+        // Calculate next sync time
+        const nextSync = new Date();
+        const [hours, minutes, seconds] = interval.split(':').map(Number);
+        nextSync.setHours(nextSync.getHours() + hours);
+        nextSync.setMinutes(nextSync.getMinutes() + minutes);
+        nextSync.setSeconds(nextSync.getSeconds() + seconds);
+        
+        updates.next_sync_time = nextSync.toISOString();
+      } else {
+        updates.next_sync_time = null;
+      }
+
+      const updatedProject = await SavedProject.updateProjectData(projectUid, updates);
+
+      res.json({
+        success: true,
+        message: enabled ? 'Auto-sync configured successfully' : 'Auto-sync disabled',
+        project: updatedProject
+      });
+
+    } catch (error) {
+      console.error('Configure auto-sync error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  },
+
+  // Get projects due for auto-sync
+  async getProjectsDueForSync(req, res) {
+    try {
+      const projects = await SavedProject.getProjectsForAutoSync();
+      
+      res.json({
+        success: true,
+        projects: projects.filter(p => p.auto_sync_enabled && p.next_sync_time && new Date(p.next_sync_time) <= new Date())
+      });
+
+    } catch (error) {
+      console.error('Get projects due for sync error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  },
+
+  // Get auto-sync service status
+  async getAutoSyncStatus(req, res) {
+    try {
+      const status = autoSyncService.getStatus();
+      
+      res.json({
+        success: true,
+        status
+      });
+
+    } catch (error) {
+      console.error('Get auto-sync status error:', error);
       res.status(500).json({
         success: false,
         error: error.message

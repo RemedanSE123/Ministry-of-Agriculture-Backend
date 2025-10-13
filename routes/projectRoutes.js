@@ -17,10 +17,19 @@ router.delete('/:id', projectController.deleteProject);
 // PUT /api/projects/:projectUid/columns - Update columns
 router.put('/:projectUid/columns', projectController.updateColumns);
 
-// POST /api/projects/:projectId/sync - Sync project data
-router.post('/:projectId/sync', projectController.syncProject);
+// POST /api/projects/:projectUid/sync - Sync project data
+router.post('/:projectUid/sync', projectController.syncProject);
 
-// Add this line to your projectRoutes.js
+// GET /api/projects/:projectUid - Get single project
 router.get('/:projectUid', projectController.getProject);
+
+// PUT /api/projects/:projectUid/auto-sync - Configure auto-sync
+router.put('/:projectUid/auto-sync', projectController.configureAutoSync);
+
+// GET /api/projects/auto-sync/due - Get projects due for sync
+router.get('/auto-sync/due', projectController.getProjectsDueForSync);
+
+// GET /api/projects/auto-sync/status - Get auto-sync service status
+router.get('/auto-sync/status', projectController.getAutoSyncStatus);
 
 module.exports = router;
