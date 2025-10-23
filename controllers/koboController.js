@@ -10,10 +10,17 @@ const fetchKoboToolboxData = async (req, res) => {
       return res.status(400).json({ error: 'API token is required' });
     }
 
-    // Enhanced helper function to process submissions and extract image URLs
+    // ENHANCED: Helper function to process submissions and PRESERVE ORIGINAL DATA
     const processSubmissions = (submissions, projectUid, token) => {
       return submissions.map(submission => {
-        const processedSubmission = { ...submission };
+        // CRITICAL FIX: Preserve original data structure
+        const processedSubmission = { 
+          ...submission,
+          // Store original column names and structure for export
+          _original_data: JSON.parse(JSON.stringify(submission)), // Deep clone original
+          _original_columns: Object.keys(submission),
+          _processed_timestamp: new Date().toISOString()
+        };
         
         // Enhanced attachment processing - use the direct download_url from _attachments
         if (submission._attachments && Array.isArray(submission._attachments)) {
@@ -29,24 +36,19 @@ const fetchKoboToolboxData = async (req, res) => {
               const simpleFilename = attachment.filename.split('/').pop();
               console.log(`📝 Extracted simple filename: ${simpleFilename} from ${attachment.filename}`);
              
-              
-
-
-// In the processSubmissions function, improve the field matching:
-let fieldName = 'attachment';
-Object.keys(submission).forEach(key => {
-  const value = submission[key];
-  // Better matching: compare simple filenames
-  if (value && typeof value === 'string') {
-    const valueSimpleName = value.split('/').pop();
-    if (valueSimpleName === simpleFilename) {
-      fieldName = key;
-      console.log(`🔗 Found matching field "${fieldName}" for attachment`);
-    }
-  }
-});
-
-
+              // Improved field matching:
+              let fieldName = 'attachment';
+              Object.keys(submission).forEach(key => {
+                const value = submission[key];
+                // Better matching: compare simple filenames
+                if (value && typeof value === 'string') {
+                  const valueSimpleName = value.split('/').pop();
+                  if (valueSimpleName === simpleFilename) {
+                    fieldName = key;
+                    console.log(`🔗 Found matching field "${fieldName}" for attachment`);
+                  }
+                }
+              });
 
               // Store the DIRECT download URL from KoboToolbox (this is the key fix!)
               processedSubmission[`${fieldName}_attachment_url`] = attachment.download_url;
@@ -91,7 +93,7 @@ Object.keys(submission).forEach(key => {
       });
     };
 
-    // [Rest of the fetchKoboToolboxData function remains the same...]
+    // [Rest of your existing fetchKoboToolboxData function remains exactly the same...]
     // Check if token already exists for this user
     const existingTokens = await KoboToken.findByUserId(user_id);
     const existingToken = existingTokens.find(t => t.token === token);
@@ -152,7 +154,7 @@ Object.keys(submission).forEach(key => {
               
               console.log(`📊 Processing ${rawSubmissions.length} submissions for project ${project.uid}`);
               
-              // Process submissions to add image URLs
+              // Process submissions to add image URLs AND PRESERVE ORIGINAL DATA
               submissions = processSubmissions(rawSubmissions, project.uid, token);
               
               if (submissions.length > 0) {
@@ -231,7 +233,7 @@ Object.keys(submission).forEach(key => {
       });
     }
 
-    // [Rest of the function for new tokens...]
+    // [Rest of the function for new tokens remains exactly the same...]
     const assetsResponse = await fetch('https://kf.kobotoolbox.org/api/v2/assets/', {
       headers: { 
         Authorization: `Token ${token}`,
@@ -280,7 +282,7 @@ Object.keys(submission).forEach(key => {
             const submissionsData = await dataResponse.json();
             const rawSubmissions = submissionsData.results || [];
             
-            // Process submissions to add image URLs
+            // Process submissions to add image URLs AND PRESERVE ORIGINAL DATA
             submissions = processSubmissions(rawSubmissions, project.uid, token);
             
             if (submissions.length > 0) {
@@ -350,14 +352,7 @@ Object.keys(submission).forEach(key => {
   }
 };
 
-
-
-
-
-
-
-
-
+// [Keep all your other functions exactly the same - getImage, getImageBySubmission, syncProjectData, debugImageAccess]
 // COMPLETELY REVISED image fetching - use direct download URLs from submission data
 const getImage = async (req, res) => {
   try {
@@ -555,16 +550,6 @@ const getImage = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
 // Enhanced getImageBySubmission - use direct download URLs
 const getImageBySubmission = async (req, res) => {
   try {
@@ -643,11 +628,6 @@ const getImageBySubmission = async (req, res) => {
   }
 };
 
-
-
-
-
-
 // [Keep syncProjectData and debugImageAccess functions the same as before...]
 const syncProjectData = async (req, res) => {
   try {
@@ -658,10 +638,17 @@ const syncProjectData = async (req, res) => {
       return res.status(400).json({ error: 'API token is required' });
     }
 
-    // Use the EXACT SAME processing function from fetchKoboToolboxData
+    // Use the EXACT SAME processing function from fetchKoboToolboxData (with preservation)
     const processSubmissions = (submissions, projectUid, token) => {
       return submissions.map(submission => {
-        const processedSubmission = { ...submission };
+        // CRITICAL FIX: Preserve original data structure during sync too
+        const processedSubmission = { 
+          ...submission,
+          // Store original column names and structure for export
+          _original_data: JSON.parse(JSON.stringify(submission)), // Deep clone original
+          _original_columns: Object.keys(submission),
+          _processed_timestamp: new Date().toISOString()
+        };
         
         // Enhanced attachment processing - use direct download_url
         if (submission._attachments && Array.isArray(submission._attachments)) {
@@ -676,18 +663,18 @@ const syncProjectData = async (req, res) => {
               const simpleFilename = attachment.filename.split('/').pop();
               console.log(`📝 Extracted simple filename during sync: ${simpleFilename} from ${attachment.filename}`);
               
-             let fieldName = 'attachment';
-Object.keys(submission).forEach(key => {
-  const value = submission[key];
-  // Better matching: compare simple filenames
-  if (value && typeof value === 'string') {
-    const valueSimpleName = value.split('/').pop();
-    if (valueSimpleName === simpleFilename) {
-      fieldName = key;
-      console.log(`🔗 Found matching field "${fieldName}" for attachment`);
-    }
-  }
-});
+              let fieldName = 'attachment';
+              Object.keys(submission).forEach(key => {
+                const value = submission[key];
+                // Better matching: compare simple filenames
+                if (value && typeof value === 'string') {
+                  const valueSimpleName = value.split('/').pop();
+                  if (valueSimpleName === simpleFilename) {
+                    fieldName = key;
+                    console.log(`🔗 Found matching field "${fieldName}" for attachment`);
+                  }
+                }
+              });
 
               // Store the DIRECT download URL from KoboToolbox (same as initial fetch)
               processedSubmission[`${fieldName}_attachment_url`] = attachment.download_url;
@@ -764,12 +751,12 @@ Object.keys(submission).forEach(key => {
     // Clear existing submissions
     await ProjectSubmission.deleteByProjectUid(projectUid);
     
-    // Store new submissions WITH PROCESSED IMAGE URLS
+    // Store new submissions WITH PROCESSED IMAGE URLS AND ORIGINAL DATA
     for (const submission of submissions) {
       await ProjectSubmission.create({
         project_uid: projectUid,
         submission_id: submission._id || submission.id || Date.now().toString(),
-        submission_data: submission // This now includes the processed image URLs
+        submission_data: submission // This now includes the processed image URLs AND original data
       });
     }
 
@@ -813,10 +800,6 @@ Object.keys(submission).forEach(key => {
     });
   }
 };
-
-
-
-
 
 const debugImageAccess = async (req, res) => {
   try {

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const projectController = require('../controllers/projectController');
+const exportController = require('../controllers/exportController');
 
 // POST /api/projects/save - Save project
 router.post('/save', projectController.saveProject);
@@ -31,5 +32,11 @@ router.get('/auto-sync/due', projectController.getProjectsDueForSync);
 
 // GET /api/projects/auto-sync/status - Get auto-sync service status
 router.get('/auto-sync/status', projectController.getAutoSyncStatus);
+
+// FIXED: Export routes - match the frontend URL pattern
+router.get('/:projectUid/export/:format', exportController.exportProjectData);
+
+// Keep the generic export route as fallback
+router.get('/:projectUid/export', exportController.exportProjectData);
 
 module.exports = router;
